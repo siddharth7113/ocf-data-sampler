@@ -3,7 +3,11 @@
 import xarray as xr
 from typing_extensions import override
 
+<<<<<<< HEAD:ocf_data_sampler/torch_datasets/sample/site.py
 from ocf_data_sampler.numpy_sample.common_types import NumpySample
+=======
+from ocf_data_sampler.sample.base import NumpySample, SampleBase
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility):ocf_data_sampler/sample/site.py
 from ocf_data_sampler.torch_datasets.datasets.site import convert_netcdf_to_numpy_sample
 
 from .base import SampleBase

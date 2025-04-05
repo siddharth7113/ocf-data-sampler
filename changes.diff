@@ -1,0 +1,216 @@
+diff --git a/ocf_data_sampler/load/gsp.py b/ocf_data_sampler/load/gsp.py
+index 8ae2c3f..bb34adf 100644
+--- a/ocf_data_sampler/load/gsp.py
++++ b/ocf_data_sampler/load/gsp.py
+@@ -4,7 +4,7 @@ from importlib.resources import files
+ 
+ import pandas as pd
+ import xarray as xr
+-
++import numpy as np
+ 
+ def open_gsp(zarr_path: str) -> xr.DataArray:
+     """Open the GSP data.
+@@ -15,22 +15,36 @@ def open_gsp(zarr_path: str) -> xr.DataArray:
+     Returns:
+         xr.DataArray: The opened GSP data
+     """
+-    ds = xr.open_zarr(zarr_path)
++    ds = xr.open_dataset(zarr_path,engine="h5netcdf",storage_options={"anon": True})
++    ds = xr.Dataset(
++    {
++        "generation_mw": (("datetime_gmt", "gsp_id"), np.expand_dims(ds["generation_mw"].values, axis=1)),  # Variable 1
++        "capacity_mwp": (("datetime_gmt", "gsp_id"), np.expand_dims(ds["capacity_mwp"].values, axis=1))   # Variable 2
++    },
++    coords={
++        "datetime_gmt": ds["datetime_gmt"].values,  # Assign coordinate values for dim1
++        "gsp_id": [0]   # Assign coordinate values for dim2
++    }
++)
+ 
+     ds = ds.rename({"datetime_gmt": "time_utc"})
++    ds = ds.sortby("time_utc")
+ 
+     # Load UK GSP locations
+     df_gsp_loc = pd.read_csv(
+         files("ocf_data_sampler.data").joinpath("uk_gsp_locations.csv"),
+         index_col="gsp_id",
+     )
+-
++    # slice to just the 0 gsp_id 
++    df_gsp_loc = df_gsp_loc[:1]
+     # Add locations and capacities as coordinates for each GSP and datetime
+     ds = ds.assign_coords(
+         x_osgb=(df_gsp_loc.x_osgb.to_xarray()),
+         y_osgb=(df_gsp_loc.y_osgb.to_xarray()),
+-        nominal_capacity_mwp=ds.installedcapacity_mwp,
++        # nominal_capacity_mwp=ds.installedcapacity_mwp,
++        nominal_capacity_mwp=ds.capacity_mwp,
+         effective_capacity_mwp=ds.capacity_mwp,
+     )
+-
++    # print(ds.generation_mw)
++    # print(ds.generation_mw["gsp_id"].values)
+     return ds.generation_mw
+diff --git a/ocf_data_sampler/load/load_dataset.py b/ocf_data_sampler/load/load_dataset.py
+index 7c9cf1d..deb585c 100644
+--- a/ocf_data_sampler/load/load_dataset.py
++++ b/ocf_data_sampler/load/load_dataset.py
+@@ -19,8 +19,8 @@ def get_dataset_dict(input_config: InputData) -> dict[str, dict[xr.DataArray] |
+         da_gsp = open_gsp(zarr_path=input_config.gsp.zarr_path).compute()
+ 
+         # Remove national GSP
+-        datasets_dict["gsp"] = da_gsp.sel(gsp_id=slice(1, None))
+-
++        # datasets_dict["gsp"] = da_gsp.sel(gsp_id=slice(1, None))
++        datasets_dict["gsp"] = da_gsp.sel(gsp_id=0)
+     # Load NWP data if in config
+     if input_config.nwp:
+         datasets_dict["nwp"] = {}
+diff --git a/ocf_data_sampler/load/nwp/providers/gfs.py b/ocf_data_sampler/load/nwp/providers/gfs.py
+index cf03ae8..f5b1c89 100644
+--- a/ocf_data_sampler/load/nwp/providers/gfs.py
++++ b/ocf_data_sampler/load/nwp/providers/gfs.py
+@@ -23,13 +23,34 @@ def open_gfs(zarr_path: str | list[str]) -> xr.DataArray:
+ 
+     # Open data
+     gfs: xr.Dataset = open_zarr_paths(zarr_path, time_dim="init_time_utc")
+-    nwp: xr.DataArray = gfs.to_array()
+-
++    # nwp: xr.DataArray = gfs.to_array()
++    nwp: xr.DataArray = gfs.to_array(dim="channel")
++    # nwp = gfs["gfs"]  # <- instead of to_array() // This is a fix for current data
++    # print("Dims:", nwp.dims)
++
++
++    # Remap 0–360 longitude back to -180 to 180 to match POI inputs
++    # This must be done before slicing! temp fix
++    if (nwp.longitude > 180).any():
++        print("Converting longitude from 0-360 to -180-180")
++        nwp = nwp.assign_coords(longitude=(((nwp.longitude + 180) % 360) - 180))
++        # nwp = nwp.sortby("longitude")
+     del gfs
+ 
+-    nwp = nwp.rename({"variable": "channel","init_time": "init_time_utc"})
++    # # nwp = nwp.rename({"variable": "channel","init_time": "init_time_utc"})
++    # rename_dict = {"variable": "channel"}
++    # if "init_time" in nwp.coords:
++    #     rename_dict["init_time"] = "init_time_utc"  # If 'init_time' exists, rename it
++    # nwp = nwp.rename(rename_dict)
++
+     check_time_unique_increasing(nwp.init_time_utc)
+-    nwp = make_spatial_coords_increasing(nwp, x_coord="longitude", y_coord="latitude")
++    # Ensure longitude is in increasing order
++    if not (nwp.longitude.values[0] < nwp.longitude.values[-1]):
++        nwp = nwp.sortby("longitude")
++
++    # Ensure latitude is in increasing order
++    if not (nwp.latitude.values[0] < nwp.latitude.values[-1]):
++        nwp = nwp.sortby("latitude")
+ 
+     nwp = nwp.transpose("init_time_utc", "step", "channel", "latitude", "longitude")
+ 
+diff --git a/ocf_data_sampler/load/nwp/providers/utils.py b/ocf_data_sampler/load/nwp/providers/utils.py
+index 03099dc..bbf4351 100755
+--- a/ocf_data_sampler/load/nwp/providers/utils.py
++++ b/ocf_data_sampler/load/nwp/providers/utils.py
+@@ -1,21 +1,14 @@
+ """Utility functions for the NWP data processing."""
+ 
+ import xarray as xr
+-
++import fsspec
+ 
+ def open_zarr_paths(zarr_path: str | list[str], time_dim: str = "init_time") -> xr.Dataset:
+-    """Opens the NWP data.
+-
+-    Args:
+-        zarr_path: Path to the zarr(s) to open
+-        time_dim: Name of the time dimension
++    """Opens the NWP data with forced anonymous S3 access."""
+ 
+-    Returns:
+-        The opened Xarray Dataset
+-    """
+-    if type(zarr_path) in [list, tuple] or "*" in str(zarr_path):  # Multi-file dataset
++    if isinstance(zarr_path, (list, tuple)) or "*" in str(zarr_path):  # Multi-file dataset
+         ds = xr.open_mfdataset(
+-            zarr_path,
++            [fsspec.get_mapper(path, anon=True) for path in zarr_path],  # Force anonymous access
+             engine="zarr",
+             concat_dim=time_dim,
+             combine="nested",
+@@ -23,10 +16,11 @@ def open_zarr_paths(zarr_path: str | list[str], time_dim: str = "init_time") ->
+         ).sortby(time_dim)
+     else:
+         ds = xr.open_dataset(
+-            zarr_path,
++            fsspec.get_mapper(zarr_path, anon=True),  # Force anonymous access
+             engine="zarr",
+             consolidated=True,
+             mode="r",
+             chunks="auto",
+         )
+     return ds
++
+diff --git a/ocf_data_sampler/select/select_time_slice.py b/ocf_data_sampler/select/select_time_slice.py
+index 6cdc3e1..3f0158d 100644
+--- a/ocf_data_sampler/select/select_time_slice.py
++++ b/ocf_data_sampler/select/select_time_slice.py
+@@ -55,7 +55,10 @@ def select_time_slice_nwp(
+     if accum_channels is None:
+         accum_channels = []
+ 
+-    if dropout_timedeltas is not None:
++    if dropout_timedeltas is None:
++        dropout_timedeltas = []
++
++    if len(dropout_timedeltas)>0:
+         if not all(t < pd.Timedelta(0) for t in dropout_timedeltas):
+             raise ValueError("dropout timedeltas must be negative")
+         if len(dropout_timedeltas) < 1:
+@@ -64,7 +67,7 @@ def select_time_slice_nwp(
+     if not (0 <= dropout_frac <= 1):
+         raise ValueError("dropout_frac must be between 0 and 1")
+ 
+-    consider_dropout = (dropout_timedeltas is not None) and dropout_frac > 0
++    consider_dropout = len(dropout_timedeltas) > 0 and dropout_frac > 0
+ 
+     # The accumatated and non-accumulated channels
+     accum_channels = np.intersect1d(da.channel.values, accum_channels)
+@@ -137,4 +140,4 @@ def select_time_slice_nwp(
+             f"diff_{v}" if v in accum_channels else v for v in da_sel.channel.values
+         ]
+ 
+-    return da_sel
++    return da_sel
+\ No newline at end of file
+diff --git a/ocf_data_sampler/select/spatial_slice_for_dataset.py b/ocf_data_sampler/select/spatial_slice_for_dataset.py
+index e6cf31e..e5ef977 100644
+--- a/ocf_data_sampler/select/spatial_slice_for_dataset.py
++++ b/ocf_data_sampler/select/spatial_slice_for_dataset.py
+@@ -46,7 +46,10 @@ def slice_datasets_by_space(
+         )
+ 
+     if "gsp" in datasets_dict:
+-        sliced_datasets_dict["gsp"] = datasets_dict["gsp"].sel(gsp_id=location.id)
++        # sliced_datasets_dict["gsp"] = datasets_dict["gsp"].sel(gsp_id=location.id)
++        # print("DEBUG: gsp dataset coords =", datasets_dict["gsp"].coords) #debugging by sid
++        # print("DEBUG: gsp dataset dims =", datasets_dict["gsp"].dims) ## debugging by sid
++        sliced_datasets_dict["gsp"] = datasets_dict["gsp"] # temp fix since it only contains 0
+ 
+     if "site" in datasets_dict:
+         sliced_datasets_dict["site"] = datasets_dict["site"].sel(site_id=location.id)
+diff --git a/ocf_data_sampler/torch_datasets/utils/valid_time_periods.py b/ocf_data_sampler/torch_datasets/utils/valid_time_periods.py
+index f8495db..1a32fce 100644
+--- a/ocf_data_sampler/torch_datasets/utils/valid_time_periods.py
++++ b/ocf_data_sampler/torch_datasets/utils/valid_time_periods.py
+@@ -28,7 +28,7 @@ def find_valid_time_periods(datasets_dict: dict, config: Configuration) -> pd.Da
+         for nwp_key, nwp_config in config.input_data.nwp.items():
+             da = datasets_dict["nwp"][nwp_key]
+ 
+-            if nwp_config.dropout_timedeltas_minutes is None:
++            if nwp_config.dropout_timedeltas_minutes==[]:
+                 max_dropout = minutes(0)
+             else:
+                 max_dropout = minutes(np.max(np.abs(nwp_config.dropout_timedeltas_minutes)))

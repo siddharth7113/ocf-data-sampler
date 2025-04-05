@@ -6,7 +6,12 @@ import xarray as xr
 from torch.utils.data import Dataset
 from typing_extensions import override
 
+<<<<<<< HEAD
 from ocf_data_sampler.config import load_yaml_configuration
+=======
+from ocf_data_sampler.config import Configuration, load_yaml_configuration
+from ocf_data_sampler.constants import NWP_MEANS, NWP_STDS, RSS_MEAN, RSS_STD
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility)
 from ocf_data_sampler.load.load_dataset import get_dataset_dict
 from ocf_data_sampler.numpy_sample import (
     NWPSampleKey,
@@ -33,6 +38,11 @@ from ocf_data_sampler.torch_datasets.utils.merge_and_fill_utils import (
     fill_nans_in_arrays,
     merge_dicts,
 )
+from ocf_data_sampler.torch_datasets.utils.valid_time_periods import find_valid_time_periods
+from ocf_data_sampler.torch_datasets.utils.validate_channels import (
+    validate_nwp_channels,
+    validate_satellite_channels,
+)
 from ocf_data_sampler.utils import minutes
 
 xr.set_options(keep_attrs=True)
@@ -54,7 +64,14 @@ class SitesDataset(Dataset):
             start_time: Limit the init-times to be after this
             end_time: Limit the init-times to be before this
         """
+<<<<<<< HEAD
         config = load_yaml_configuration(config_filename)
+=======
+        config: Configuration = load_yaml_configuration(config_filename)
+        validate_nwp_channels(config)
+        validate_satellite_channels(config)
+
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility)
         datasets_dict = get_dataset_dict(config.input_data)
 
         # Assign config and input data to self
@@ -206,6 +223,7 @@ class SitesDataset(Dataset):
 
         Args:
             dataset_dict: dict containing sliced xr DataArrays
+            config: Configuration for the model
             t0: The initial timestamp of the sample
 
         Returns:
@@ -217,6 +235,7 @@ class SitesDataset(Dataset):
             for nwp_key, da_nwp in dataset_dict["nwp"].items():
                 provider = self.config.input_data.nwp[nwp_key].provider
 
+<<<<<<< HEAD
                 da_channel_means = channel_dict_to_dataarray(
                     self.config.input_data.nwp[nwp_key].channel_means,
                 )
@@ -225,11 +244,16 @@ class SitesDataset(Dataset):
                 )
 
                 da_nwp = (da_nwp - da_channel_means) / da_channel_stds
+=======
+                # Standardise
+                da_nwp = (da_nwp - NWP_MEANS[provider]) / NWP_STDS[provider]
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility)
                 data_arrays.append((f"nwp-{provider}", da_nwp))
 
         if "sat" in dataset_dict:
             da_sat = dataset_dict["sat"]
 
+<<<<<<< HEAD
             da_channel_means = channel_dict_to_dataarray(
                 self.config.input_data.satellite.channel_means,
             )
@@ -238,6 +262,10 @@ class SitesDataset(Dataset):
             )
 
             da_sat = (da_sat - da_channel_means) / da_channel_stds
+=======
+            # Standardise
+            da_sat = (da_sat - RSS_MEAN) / RSS_STD
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility)
             data_arrays.append(("satellite", da_sat))
 
         if "site" in dataset_dict:

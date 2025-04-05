@@ -8,9 +8,13 @@ from ocf_data_sampler.numpy_sample import (
     NWPSampleKey,
     SatelliteSampleKey,
 )
+<<<<<<< HEAD:ocf_data_sampler/torch_datasets/sample/uk_regional.py
 from ocf_data_sampler.numpy_sample.common_types import NumpySample
 
 from .base import SampleBase
+=======
+from ocf_data_sampler.sample.base import NumpySample, SampleBase
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility):ocf_data_sampler/sample/uk_regional.py
 
 
 class UKRegionalSample(SampleBase):

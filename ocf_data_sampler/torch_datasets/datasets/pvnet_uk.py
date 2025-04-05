@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 from typing_extensions import override
 
 from ocf_data_sampler.config import Configuration, load_yaml_configuration
+from ocf_data_sampler.constants import NWP_MEANS, NWP_STDS, RSS_MEAN, RSS_STD
 from ocf_data_sampler.load.load_dataset import get_dataset_dict
 from ocf_data_sampler.numpy_sample import (
     convert_gsp_to_numpy_sample,
@@ -28,15 +29,108 @@ from ocf_data_sampler.torch_datasets.utils import (
     slice_datasets_by_space,
     slice_datasets_by_time,
 )
+<<<<<<< HEAD
+=======
+from ocf_data_sampler.select.geospatial import osgb_to_lon_lat
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility)
 from ocf_data_sampler.torch_datasets.utils.merge_and_fill_utils import (
     fill_nans_in_arrays,
     merge_dicts,
+)
+from ocf_data_sampler.torch_datasets.utils.valid_time_periods import find_valid_time_periods
+from ocf_data_sampler.torch_datasets.utils.validate_channels import (
+    validate_nwp_channels,
+    validate_satellite_channels,
 )
 from ocf_data_sampler.utils import minutes
 
 xr.set_options(keep_attrs=True)
 
 
+<<<<<<< HEAD
+=======
+def process_and_combine_datasets(
+    dataset_dict: dict,
+    config: Configuration,
+    t0: pd.Timestamp,
+    location: Location,
+) -> dict:
+    """Normalise and convert data to numpy arrays."""
+    numpy_modalities = []
+
+    if "nwp" in dataset_dict:
+        nwp_numpy_modalities = {}
+
+        for nwp_key, da_nwp in dataset_dict["nwp"].items():
+            provider = config.input_data.nwp[nwp_key].provider
+
+            # Standardise and convert to NumpyBatch
+            da_nwp = (da_nwp - NWP_MEANS[provider]) / NWP_STDS[provider]
+            nwp_numpy_modalities[nwp_key] = convert_nwp_to_numpy_sample(da_nwp)
+
+        # Combine the NWPs into NumpyBatch
+        numpy_modalities.append({NWPSampleKey.nwp: nwp_numpy_modalities})
+
+    if "sat" in dataset_dict:
+        da_sat = dataset_dict["sat"]
+
+        # Standardise and convert to NumpyBatch
+        da_sat = (da_sat - RSS_MEAN) / RSS_STD
+        numpy_modalities.append(convert_satellite_to_numpy_sample(da_sat))
+
+    if "gsp" in dataset_dict:
+        gsp_config = config.input_data.gsp
+        da_gsp = dataset_dict["gsp"]
+        da_gsp = da_gsp / da_gsp.effective_capacity_mwp
+
+        # Convert to NumpyBatch
+        numpy_modalities.append(
+            convert_gsp_to_numpy_sample(
+                da_gsp,
+                t0_idx=-gsp_config.interval_start_minutes / gsp_config.time_resolution_minutes,
+            ),
+        )
+
+    # Add GSP location data
+    numpy_modalities.append(
+        {
+            GSPSampleKey.gsp_id: location.id,
+            GSPSampleKey.x_osgb: location.x,
+            GSPSampleKey.y_osgb: location.y,
+        },
+    )
+
+    # Only add solar position if explicitly configured
+    has_solar_config = (
+        hasattr(config.input_data, "solar_position") and
+        config.input_data.solar_position is not None
+    )
+
+    if has_solar_config:
+        solar_config = config.input_data.solar_position
+
+        # Create datetime range for solar position calculation
+        datetimes = pd.date_range(
+            t0 + minutes(solar_config.interval_start_minutes),
+            t0 + minutes(solar_config.interval_end_minutes),
+            freq=minutes(solar_config.time_resolution_minutes),
+        )
+
+        # Convert OSGB coordinates to lon/lat
+        lon, lat = osgb_to_lon_lat(location.x, location.y)
+
+        # Calculate solar positions and add to modalities
+        solar_positions = make_sun_position_numpy_sample(datetimes, lon, lat)
+        numpy_modalities.append(solar_positions)
+
+    # Combine all the modalities and fill NaNs
+    combined_sample = merge_dicts(numpy_modalities)
+    combined_sample = fill_nans_in_arrays(combined_sample)
+
+    return combined_sample
+
+
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility)
 def compute(xarray_dict: dict) -> dict:
     """Eagerly load a nested dictionary of xarray DataArrays."""
     for k, v in xarray_dict.items():
@@ -94,7 +188,15 @@ class AbstractPVNetUKDataset(Dataset):
             end_time: Limit the init-times to be before this
             gsp_ids: List of GSP IDs to create samples for. Defaults to all
         """
+<<<<<<< HEAD
         config = load_yaml_configuration(config_filename)
+=======
+        # config = load_yaml_configuration(config_filename)
+        config: Configuration = load_yaml_configuration(config_filename)
+        validate_nwp_channels(config)
+        validate_satellite_channels(config)
+
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility)
         datasets_dict = get_dataset_dict(config.input_data)
 
         # Get t0 times where all input data is available
@@ -313,6 +415,55 @@ class PVNetUKRegionalDataset(AbstractPVNetUKDataset):
 class PVNetUKConcurrentDataset(AbstractPVNetUKDataset):
     """A torch Dataset for creating concurrent PVNet UK regional samples."""
 
+<<<<<<< HEAD
+=======
+    def __init__(
+        self,
+        config_filename: str,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        gsp_ids: list[int] | None = None,
+    ) -> None:
+        """A torch Dataset for creating concurrent samples of PVNet UK regional data.
+
+        Each concurrent sample includes the data from all GSPs for a single t0 time
+
+        Args:
+            config_filename: Path to the configuration file
+            start_time: Limit the init-times to be after this
+            end_time: Limit the init-times to be before this
+            gsp_ids: List of all GSP IDs included in each sample. Defaults to all
+        """
+        config = load_yaml_configuration(config_filename)
+
+        # Validate channels for NWP and satellite data
+        validate_nwp_channels(config)
+        validate_satellite_channels(config)
+
+        datasets_dict = get_dataset_dict(config.input_data)
+
+        # Get t0 times where all input data is available
+        valid_t0_times = find_valid_t0_times(datasets_dict, config)
+
+        # Filter t0 times to given range
+        if start_time is not None:
+            valid_t0_times = valid_t0_times[valid_t0_times >= pd.Timestamp(start_time)]
+
+        if end_time is not None:
+            valid_t0_times = valid_t0_times[valid_t0_times <= pd.Timestamp(end_time)]
+
+        # Construct list of locations to sample from
+        locations = get_gsp_locations(gsp_ids)
+
+        # Assign coords and indices to self
+        self.valid_t0_times = valid_t0_times
+        self.locations = locations
+
+        # Assign config and input data to self
+        self.datasets_dict = datasets_dict
+        self.config = config
+
+>>>>>>> f3b2c92 (Local fixes to ocf-data-sampler for compatibility)
     @override
     def __len__(self) -> int:
         return len(self.valid_t0_times)

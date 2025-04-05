@@ -23,14 +23,34 @@ def open_gfs(zarr_path: str | list[str]) -> xr.DataArray:
 
     # Open data
     gfs: xr.Dataset = open_zarr_paths(zarr_path, time_dim="init_time_utc")
-    nwp: xr.DataArray = gfs.to_array()
+    # nwp: xr.DataArray = gfs.to_array()
+    nwp: xr.DataArray = gfs.to_array(dim="channel")
 
+
+
+    # Remap 0–360 longitude back to -180 to 180 to match POI inputs
+    # This must be done before slicing! temp fix
+    if (nwp.longitude > 180).any():
+        print("Converting longitude from 0-360 to -180-180")
+        nwp = nwp.assign_coords(longitude=(((nwp.longitude + 180) % 360) - 180))
+        # nwp = nwp.sortby("longitude")
     del gfs
 
-    nwp = nwp.rename({"variable": "channel","init_time": "init_time_utc"})
-    check_time_unique_increasing(nwp.init_time_utc)
-    nwp = make_spatial_coords_increasing(nwp, x_coord="longitude", y_coord="latitude")
+    # # nwp = nwp.rename({"variable": "channel","init_time": "init_time_utc"})
+    # rename_dict = {"variable": "channel"}
+    # if "init_time" in nwp.coords:
+    #     rename_dict["init_time"] = "init_time_utc"  # If 'init_time' exists, rename it
+    # nwp = nwp.rename(rename_dict)
 
-    nwp = nwp.transpose("init_time_utc", "step", "channel", "longitude", "latitude")
+    check_time_unique_increasing(nwp.init_time_utc)
+    # Ensure longitude is in increasing order
+    if not (nwp.longitude.values[0] < nwp.longitude.values[-1]):
+        nwp = nwp.sortby("longitude")
+
+    # Ensure latitude is in increasing order
+    if not (nwp.latitude.values[0] < nwp.latitude.values[-1]):
+        nwp = nwp.sortby("latitude")
+
+    nwp = nwp.transpose("init_time_utc", "step", "channel", "latitude", "longitude")
 
     return nwp

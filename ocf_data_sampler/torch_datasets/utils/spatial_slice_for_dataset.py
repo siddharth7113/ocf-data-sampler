@@ -46,7 +46,10 @@ def slice_datasets_by_space(
         )
 
     if "gsp" in datasets_dict:
-        sliced_datasets_dict["gsp"] = datasets_dict["gsp"].sel(gsp_id=location.id)
+        # sliced_datasets_dict["gsp"] = datasets_dict["gsp"].sel(gsp_id=location.id)
+        # print("DEBUG: gsp dataset coords =", datasets_dict["gsp"].coords) #debugging by sid
+        # print("DEBUG: gsp dataset dims =", datasets_dict["gsp"].dims) ## debugging by sid
+        sliced_datasets_dict["gsp"] = datasets_dict["gsp"] # temp fix since it only contains 0
 
     if "site" in datasets_dict:
         sliced_datasets_dict["site"] = datasets_dict["site"].sel(site_id=location.id)
