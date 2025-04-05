@@ -1,34 +1,26 @@
 """Utility functions for the NWP data processing."""
 
 import xarray as xr
-
+import fsspec
 
 def open_zarr_paths(zarr_path: str | list[str], time_dim: str = "init_time") -> xr.Dataset:
-    """Opens the NWP data.
+    """Opens the NWP data with forced anonymous S3 access."""
 
-    Args:
-        zarr_path: Path to the zarr(s) to open
-        time_dim: Name of the time dimension
-
-    Returns:
-        The opened Xarray Dataset
-    """
-    if type(zarr_path) in [list, tuple] or "*" in str(zarr_path):  # Multi-file dataset
+    if isinstance(zarr_path, (list, tuple)) or "*" in str(zarr_path):  # Multi-file dataset
         ds = xr.open_mfdataset(
-            zarr_path,
+            [fsspec.get_mapper(path, anon=True) for path in zarr_path],  # Force anonymous access
             engine="zarr",
             concat_dim=time_dim,
             combine="nested",
             chunks="auto",
-            decode_timedelta=True,
         ).sortby(time_dim)
     else:
         ds = xr.open_dataset(
-            zarr_path,
+            fsspec.get_mapper(zarr_path, anon=True),  # Force anonymous access
             engine="zarr",
             consolidated=True,
             mode="r",
             chunks="auto",
-            decode_timedelta=True,
         )
     return ds
+

@@ -1,11 +1,14 @@
 """Base class for handling flat/nested data structures with NWP consideration."""
 
 from abc import ABC, abstractmethod
+from typing import TypeAlias
 
 import numpy as np
 import torch
 
-from ocf_data_sampler.numpy_sample.common_types import NumpyBatch, NumpySample, TensorBatch
+NumpySample: TypeAlias = dict[str, np.ndarray | dict[str, np.ndarray]]
+NumpyBatch: TypeAlias = dict[str, np.ndarray | dict[str, np.ndarray]]
+TensorBatch: TypeAlias = dict[str, torch.Tensor | dict[str, torch.Tensor]]
 
 
 class SampleBase(ABC):

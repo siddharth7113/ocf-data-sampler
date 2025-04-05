@@ -19,8 +19,8 @@ def get_dataset_dict(input_config: InputData) -> dict[str, dict[xr.DataArray] | 
         da_gsp = open_gsp(zarr_path=input_config.gsp.zarr_path).compute()
 
         # Remove national GSP
-        datasets_dict["gsp"] = da_gsp.sel(gsp_id=slice(1, None))
-
+        # datasets_dict["gsp"] = da_gsp.sel(gsp_id=slice(1, None))
+        datasets_dict["gsp"] = da_gsp.sel(gsp_id=0)
     # Load NWP data if in config
     if input_config.nwp:
         datasets_dict["nwp"] = {}
