@@ -30,5 +30,10 @@ def open_zarr_paths(zarr_path: str | list[str], time_dim: str = "init_time") -> 
             mode="r",
             chunks="auto",
             decode_timedelta=True,
+            backend_kwargs={
+        "storage_options": {
+            "anon": True  # Enable anon access
+        }
+    }
         )
     return ds
