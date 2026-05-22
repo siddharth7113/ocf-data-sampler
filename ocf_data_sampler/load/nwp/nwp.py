@@ -7,19 +7,18 @@ import xarray as xr
 
 from ocf_data_sampler.load.nwp.providers.loaders import (
     open_cloudcasting,
-    open_gdm,
     open_gfs,
     open_icon_eu,
-    open_ifs,
+    open_standard_lat_long_grid,
     open_ukv,
 )
 
 _OPEN_NWP_FUNCTIONS: dict[str, Callable[..., xr.DataArray]] = {
     "ukv": open_ukv,
-    "ecmwf": open_ifs,
-    "mo_global": open_ifs,
+    "ecmwf": open_standard_lat_long_grid,
+    "mo_global": open_standard_lat_long_grid,
     "icon-eu": open_icon_eu,
-    "gencast": open_gdm,
+    "gencast": open_standard_lat_long_grid,
     "gfs": open_gfs,
     "cloudcasting": open_cloudcasting,
 }

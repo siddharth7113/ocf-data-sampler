@@ -9,7 +9,7 @@ from ocf_data_sampler.load.open_xarray_tensorstore import open_zarr, open_zarrs
 
 def open_zarr_paths(
     zarr_path: str | list[str],
-    time_dim: str = "init_time",
+    time_dim: str | None = None,
     public: bool = False,
     backend: str = "dask",
 ) -> xr.Dataset:
@@ -17,7 +17,8 @@ def open_zarr_paths(
 
     Args:
         zarr_path: Path to the zarr(s) to open
-        time_dim: Name of the time dimension
+        time_dim: Name of the time dimension. If None, "init_time_utc" is tried
+            first and falls back to "init_time" for legacy zarrs.
         public: Whether the data is public or private. Only available for the dask backend.
         backend: The xarray backend to use.
 
@@ -32,13 +33,17 @@ def open_zarr_paths(
     if public and backend == "tensorstore":
         raise ValueError("Public data is only supported with the 'dask' backend.")
 
-    if backend == "tensorstore":
-        ds = _tensostore_open_zarr_paths(zarr_path, time_dim)
+    candidates = [time_dim] if time_dim else ["init_time_utc", "init_time"]
 
-    elif backend == "dask":
-        ds = _dask_open_zarr_paths(zarr_path, time_dim, public)
-
-    return ds
+    errors: list[Exception] = []
+    for candidate in candidates:
+        try:
+            if backend == "tensorstore":
+                return _tensostore_open_zarr_paths(zarr_path, candidate)
+            return _dask_open_zarr_paths(zarr_path, candidate, public)
+        except (KeyError, ValueError) as e:
+            errors.append(e)
+    raise errors[-1]
 
 
 def _dask_open_zarr_paths(zarr_path: str | list[str], time_dim: str, public: bool) -> xr.Dataset:
